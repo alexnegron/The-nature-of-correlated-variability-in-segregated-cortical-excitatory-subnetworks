@@ -19,13 +19,14 @@ def stationary_acovf(lags, M, sigma):
     arr2 = [expm(M*s) @ sigma for s in pos_lags]
     return np.append(arr1,arr2, axis=0)
 
-def autocov_sim(T=2500, tau_E=15, tau_I=15, sigE=1, sigI=1, c=0.5, shared_structure=np.array([[1],[1],[0]]), Wee=0.5, Wii=0.5, Wei=0.5, Wie=0.5, mu_0=np.array([[30.25], [30.25], [22.5]]), alpha=0.15, num_of_sims=10):
+def autocov_sim(T=2500, tau_E=15, tau_I=15, sigE=1, sigI=1, c=0.5, shared_structure=np.array([[1],[1],[0]]), Wee=0.5, Wii=0.5, Wei=0.5, Wie=0.5, r_bar=np.array([[30], [30], [35]]), alpha=0.15, num_of_sims=10):
     
     for sim in range(num_of_sims):
         print(f'{sim} of {num_of_sims-1}')
         if sim == 0: # in the first sim, initialize data matrices
             r_ss, r_n, r_p, R_ss, R_n, R_p, W, muu, ts, s_e, s_i = global_inh_model(t0=0,
-                                                                                    r0=0,
+                                                                                     r0 = r_bar,
+                                                                                     r_bar=r_bar,
                                                                                      T=T, 
                                                                                      dt=.01,
                                                                                      t_kick=80_000,
@@ -41,7 +42,6 @@ def autocov_sim(T=2500, tau_E=15, tau_I=15, sigE=1, sigI=1, c=0.5, shared_struct
                                                                                      Wii=Wii,
                                                                                      Wei=Wei,
                                                                                      Wie=Wie,
-                                                                                     mu=mu_0,
                                                                                      alpha = alpha)
 
 
