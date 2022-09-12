@@ -66,7 +66,7 @@ def global_inh_model(t0, r0, r_bar, T, dt, t_kick, kick_bool, kick, tau_E, tau_I
     R_n = np.zeros((3,1)) # stochastic solution
     R_p = np.zeros((3,1)) # deterministic solution with perturbation 
     
-    W = np.block([
+    W = np.block([        # weight matrix for global inhibition motif
         [Wee, alpha*Wee, -Wei],
         [alpha*Wee, Wee, -Wei],
         [Wie, Wie, -Wii]
@@ -74,8 +74,8 @@ def global_inh_model(t0, r0, r_bar, T, dt, t_kick, kick_bool, kick, tau_E, tau_I
     
     mu = (np.eye(3)-W)@r_bar # stimulus inputs required for given r_bar
     
-    r_n = r0
-    r_ss = r0
+    r_n = r0     
+    r_ss = r0 
     r_p = r0
 
     # initial inputs 
@@ -83,13 +83,13 @@ def global_inh_model(t0, r0, r_bar, T, dt, t_kick, kick_bool, kick, tau_E, tau_I
     In = mu 
     Ip = mu
     
-    # white noise process 
-    x = np.zeros((4,1))
+    # white noise process: first three are private noise terms, fourth is shared noise term
+    x = np.zeros((4,1)) 
     
     # vector of E/I timescales 
     tau = np.array([[tau_E], [tau_E], [tau_I]])
     
-    # noise structure matrix
+    # noise structure matrix: implements private/shared noise in matrix form
     D = np.diagflat([np.sqrt((1-c)*sigE), np.sqrt((1-c)*sigE), np.sqrt((1-c)*sigI)])
     D_shared = np.array([[np.sqrt(c*sigE)],
                         [np.sqrt(c*sigE)],
@@ -104,7 +104,7 @@ def global_inh_model(t0, r0, r_bar, T, dt, t_kick, kick_bool, kick, tau_E, tau_I
     # deterministic sim
         r_ss = r_ss + (dt*(1/tau))*(-r_ss + Id)
         Id = mu + W@r_ss
-        R_ss = np.c_[R_ss, r_ss]
+        R_ss = np.c_[R_ss, r_ss] # concatenate column 
     # noise sim
         x = np.random.randn(4,1)
         r_n = r_n + -dt*(1/tau)*r_n + dt*(1/tau)*In + (1/tau)*np.sqrt(2*dt)*(D@x)
@@ -124,24 +124,44 @@ def global_inh_model(t0, r0, r_bar, T, dt, t_kick, kick_bool, kick, tau_E, tau_I
     return r_ss, r_n, r_p, R_ss, R_n, R_p, W, mu, ts, sigE, sigI
 
 
-def corr_plot(lowerW_EI, upperW_EI, lowerW_IE, upperW_IE, W_EE, W_II, sigE1, sigE2, sigI, alpha, C, b, filename):
-    #range of J_EI
+def corr_plot(motif, lowerW_EI, upperW_EI, lowerW_IE, upperW_IE, W_EE, W_II, sigE, sigI, alpha, beta, gamma, zeta, C, b, filename):
+    #range of W_EI
     W_EIs = np.linspace(lowerW_EI, upperW_EI, 200)
     W_IEs = np.linspace(lowerW_IE, upperW_IE, 200)
     
-    Sigma_private = np.array([
-        [np.sqrt((1-C)*sigE1), 0, 0, 0],
-        [0, np.sqrt((1-C)*sigE2), 0, 0],
-        [0, 0, np.sqrt((1-C)*sigI), 0]
-    ])
-    Sigma_shared = np.array([
-        [0, 0, 0, np.sqrt(C*sigE1)],
-        [0, 0, 0, np.sqrt(C*sigE2)],
-        [0, 0, 0, np.sqrt(C*sigI)*b] # b=1 if all units get shared noise, 0 otherwise
-    ])
+    if motif == 3:
+        Sigma_private = np.array([
+            [np.sqrt((1-C)*sigE), 0, 0, 0],
+            [0, np.sqrt((1-C)*sigE), 0, 0],
+            [0, 0, np.sqrt((1-C)*sigI), 0]
+        ])
+        Sigma_shared = np.array([
+            [0, 0, 0, np.sqrt(C*sigE)],
+            [0, 0, 0, np.sqrt(C*sigE)],
+            [0, 0, 0, np.sqrt(C*sigI)*b] # b=1 if all units get shared noise, 0 otherwise
+        ])
+    elif motif == 4:
+        Sigma_private = np.array([
+            [np.sqrt((1-C)*sigE), 0, 0, 0, 0],
+            [0, np.sqrt((1-C)*sigE), 0, 0, 0],
+            [0, 0, np.sqrt((1-C)*sigI), 0, 0],
+            [0, 0, 0, np.sqrt((1-C)*sigI), 0]
+        ])
+        Sigma_shared = np.array([
+            [0, 0, 0, 0, np.sqrt(C*sigE)],
+            [0, 0, 0, 0, np.sqrt(C*sigE)],
+            [0, 0, 0, 0, np.sqrt(C*sigI)*b], 
+            [0, 0, 0, 0, np.sqrt(C*sigI)*b]
+        ])
+        
+    else:
+        print('input "motif" parameter is either 3 (global inhibition motif) or 4 (specific inhibition motif)')
+        
+        
     Sigma = Sigma_private + Sigma_shared
     
     K = len(W_EIs)
+    N = motif
 
     # store covs/vars/corrs
     Covs_12 = np.zeros((K,K))
@@ -149,26 +169,35 @@ def corr_plot(lowerW_EI, upperW_EI, lowerW_IE, upperW_IE, W_EE, W_II, sigE1, sig
     Vars_1 = np.zeros((K,K))
     Vars_2 = np.zeros((K,K))
     Vars_3 = np.zeros((K,K))
+    
     Max_evrp = np.zeros((K,K)) # max real part eigenvalue array (for plotting unstable region)
 
     for i in range(K):
         W_EI = W_EIs[i]
         for j in range(K):
             W_IE = W_IEs[j]
-
-            W = np.block([
-                [W_EE, alpha*W_EE, -W_EI],
-                [alpha*W_EE, W_EE, -W_EI],
-                [W_IE, W_IE, -W_II]
-            ])
             
+            if N == 3: 
+                W = np.block([
+                    [W_EE, alpha*W_EE, -W_EI],
+                    [alpha*W_EE, W_EE, -W_EI],
+                    [W_IE, W_IE, -W_II]
+                ])
+            else: # N=4
+                W = np.block([
+                    [W_EE, alpha*W_EE, -W_EI, -beta*W_EI],
+                    [alpha*W_EE, W_EE, -beta*W_EI, -W_EI],
+                    [W_IE, gamma*W_IE, -W_II, -zeta*W_II],
+                    [gamma*W_IE, W_IE, -zeta*W_II, -W_II]
+                ])
+                
             eigvals = np.linalg.eigvals(W)
             evrp = eigvals.real
             max_evrp = np.max(evrp)
             Max_evrp[i,j] = max_evrp
 
             # compute covariance matrix
-            M = -np.eye(3) + W
+            M = -np.eye(N) + W
             Minv = np.linalg.inv(M)
             C = 2*Minv @ Sigma @ Sigma.T @ (Minv.T)
             Corr = correlation_from_covariance(C)
@@ -198,14 +227,15 @@ def corr_plot(lowerW_EI, upperW_EI, lowerW_IE, upperW_IE, W_EE, W_II, sigE1, sig
     cmap=cm.get_cmap('PRGn')
     cmap = cm.get_cmap("PRGn").copy()
     cmap.set_bad(color='gray')
-
+    
     im=cm.ScalarMappable(norm=divnorm, cmap=cmap)
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='8%', pad=.4)
     im = ax.imshow(np.flip(Corrs_12, axis=0), cmap=cmap, extent=[lowerW_EI, upperW_EI, lowerW_IE, upperW_IE], norm=divnorm)
     cbar=fig.colorbar(im, cax=cax, orientation='vertical')
-
-    unstable_eigmask = np.ma.masked_less(Max_evrp,1)
+    
+    # use mask to hatch region where network is unstable
+    unstable_eigmask = np.ma.masked_less(Max_evrp,1) 
     hatches = ax.contourf(W_EIs, W_IEs, unstable_eigmask, extent=[lowerW_EI, upperW_EI, lowerW_IE, upperW_IE], hatches='//', alpha=0.)
     
     ax.xaxis.set_tick_params(labelsize=30)
@@ -268,7 +298,8 @@ def path_contributions(Wee, Wii, Wie, Wei, sigE1, sigE2, sigI, alpha, nn, ylim_l
     We1e2 = We2e1 = alpha*Wee
     We1i = We2i = Wei
     Wie1 = Wie2 = Wie
-
+    
+    # parse paths in terms of order 
     inh_order_2 = 2*(-We1i*Wie2 + We1i*We2i - We2i*Wie1)
     exc_order_2 = 2*(We1e1*We1e2 + We1e2*We2e2 + We1e1*We2e1 + We1e2*We2e2 + We1e1*We2e1 + We2e1*We2e2)
     
@@ -297,9 +328,10 @@ def path_contributions(Wee, Wii, Wie, Wei, sigE1, sigE2, sigI, alpha, nn, ylim_l
             ax.bar_label(order1, labels=[r'$E$'], label_type='edge', fontsize=22)
         
         elif i == 2: # second order paths 
-            corr_through_I = inh_order_2/(np.sqrt(C[0,0])*np.sqrt(C[1,1]))
-            corr_Not_through_I = exc_order_2/(np.sqrt(C[0,0])*np.sqrt(C[1,1]))
+            corr_through_I = inh_order_2/(np.sqrt(C[0,0])*np.sqrt(C[1,1])) # capture correlation contribution via paths through I
+            corr_Not_through_I = exc_order_2/(np.sqrt(C[0,0])*np.sqrt(C[1,1])) # capture correlation contribtion via paths that do /not/ involve I 
             
+            # coloring based on whether contribution involves I or not
             if corr_through_I > 0:
                 thru_I_col = 'mediumseagreen'
             else:
@@ -310,13 +342,15 @@ def path_contributions(Wee, Wii, Wie, Wei, sigE1, sigE2, sigI, alpha, nn, ylim_l
             else:
                 not_thru_I_col = 'mediumorchid'
             
+            # form bars
             thru_I = ax.bar(idx-(.35/2), corr_through_I, width=0.35, color=thru_I_col, edgecolor='blue', hatch='x', linewidth=3.5)
             not_thru_I = ax.bar(idx+(.35/2), corr_Not_through_I, width=0.35, color=not_thru_I_col, edgecolor='orangered', hatch='x', linewidth=3.5)
-        
+            
+            # label bars
             ax.bar_label(thru_I, labels=[r'$I$'], label_type='edge', fontsize=22, padding=7)
             ax.bar_label(not_thru_I, labels=[r'$E$'], label_type='edge', fontsize=22)
             barsum += corr_through_I + corr_Not_through_I
-            
+        
         elif i == 3: # third order paths 
             corr_through_I = inh_order_3/(np.sqrt(C[0,0])*np.sqrt(C[1,1]))
             corr_Not_through_I = exc_order_3/(np.sqrt(C[0,0])*np.sqrt(C[1,1]))
@@ -337,7 +371,7 @@ def path_contributions(Wee, Wii, Wie, Wei, sigE1, sigE2, sigI, alpha, nn, ylim_l
             ax.bar_label(not_thru_I, labels=[r'$E$'], label_type='edge', fontsize=22)
             barsum += corr_through_I + corr_Not_through_I
         
-        else:
+        else: # parsing by path order is done only for order 1, 2, 3 paths—higher order parsings are unwieldy, so just plot the bars
             corr = CorrPaths_by_order[i]
             barsum += corr
             if corr < 0:
@@ -348,7 +382,8 @@ def path_contributions(Wee, Wii, Wie, Wei, sigE1, sigE2, sigI, alpha, nn, ylim_l
     
     ax.axhline(y=0, color="black", linestyle="-")
     
-    # following print statements can be uncommented as checks that things work: 
+    # following print statements can be uncommented as checks that things work (in particular, the sum of the bars should equal the total correlation
+    
     #print(f"\nmax absolute eigenvalue: {np.max(np.absolute(np.linalg.eigvals(W))):4f}\n")
     #print(f"total covariance: {Sigma_E1E2:4f}")
     #print(f"total correlation: {Corr_E1E2:4f}")
@@ -518,3 +553,212 @@ def auto_corr(Wei, Wie, Wee, Wii, alpha, sigE1, sigE2, sigI, C, tau, shared_stru
     
     return lags, y1,y2,y3, Wei # plot <r_E1(t), r_E2(t+h)>
 
+def compute_corr12(Wee, Wii, Wei, Wie, alpha, zeta, beta, gamma, sigE, sigI, c):
+    W = np.array([
+                    [Wee, alpha*Wee, -Wei, -beta*Wei],
+                    [alpha*Wee, Wee, -beta*Wei, -Wei],
+                    [Wie, gamma*Wie, -Wii, -zeta*Wii],
+                    [gamma*Wie, Wie, -zeta*Wii, -Wii]
+                ])
+    
+    M = -np.eye(4) + W
+    Minv = np.linalg.inv(M)
+    c_n = np.diagflat([np.sqrt(sigE), np.sqrt(sigE), np.sqrt(sigI), np.sqrt(sigI)])
+    
+    D = np.diagflat([np.sqrt((1-c)*sigE), np.sqrt((1-c)*sigE), np.sqrt(sigI), np.sqrt(sigI)])
+    D_shared = np.array([[np.sqrt(c*sigE)],
+                        [np.sqrt(c*sigE)],
+                        [0],
+                        [0]]) # no shared noise to I by default
+    D = np.c_[D,D_shared]
+    D = np.sqrt(2)*D
+    
+    C = Minv@D@((Minv@D).T)
+    Corr = correlation_from_covariance(C)
+    return Corr[0,1]
+
+def zeta_beta_gamma(Wee, Wii, Wei, Wie, alpha, c, sigE, sigI, filename1, filename2):
+    
+    zetas = np.linspace(0,1,100)
+    betas = np.linspace(0,1,100)
+    gammas = np.linspace(0,1,100)
+
+    corr_z = [] # turn on zeta 
+    corr_b = [] # turn on beta
+    corr_g = [] # turn on gamma
+
+    corr_zb = [] # turn on zeta and beta, 1:1
+    corr_zg = [] # turn on zeta and gamma, 1:1 
+    corr_bg = [] # turn on beta and gamma, 1:1 
+    
+    for i in range(len(zetas)): # turn params on 1 by 1
+        
+        # turning on zeta alone 
+        zeta_z = zetas[i]
+        beta_z = 0
+        gamma_z = 0
+        corr12_z = compute_corr12(Wee, Wii, Wei, Wie, alpha, zeta_z, beta_z, gamma_z, sigE, sigI, c)
+        corr_z.append(corr12_z)
+        if i==0:
+            start = corr12_z
+        
+        # turning on beta alone 
+        zeta_b = 0
+        beta_b = betas[i]
+        gamma_b = 0
+        corr12_b = compute_corr12(Wee, Wii, Wei, Wie, alpha, zeta_b, beta_b, gamma_b, sigE, sigI, c)
+        corr_b.append(corr12_b)
+        
+        # turning on gamma alone 
+        zeta_g = 0
+        beta_g = 0
+        gamma_g = gammas[i]
+        corr12_g = compute_corr12(Wee, Wii, Wei, Wie, alpha, zeta_g, beta_g, gamma_g, sigE, sigI, c)
+        corr_g.append(corr12_g)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(figsize=(22,4),nrows=1, ncols=3, sharey=True)
+    for ax in [ax1,ax2,ax3]:
+        ax.spines.left.set_linewidth(2)
+        ax.spines.bottom.set_linewidth(2)
+        ax.spines.right.set_color('none')
+        ax.spines.top.set_color('none')
+        ax.xaxis.set_tick_params(labelsize=20)
+        ax.yaxis.set_tick_params(labelsize=20)
+    
+    ax1.plot(zetas, corr_z, linewidth=3.5, color='blue', label=r'$\zeta$')
+    ax1.set_xlabel(r'$\zeta$', fontsize=20, labelpad=5)
+    ax1.set_ylabel(r'Corr$(E_1,E_2)$', fontsize=20, labelpad=5)
+    ax1.set_xlim(0,1)
+
+    ax2.plot(betas, corr_b, linewidth=3.5, color='purple', label=r'$\beta$')
+    ax2.set_xlabel(r'$\beta$', fontsize=20, labelpad=5)
+    ax2.set_xlim(0,1)
+
+    ax3.plot(gammas, corr_g, linewidth=3.5, color='orangered', label=r'$\gamma$')
+    ax3.set_xlabel(r'$\gamma$', fontsize=20, labelpad=5)
+    ax3.set_xlim(0,1)
+
+    ax1.axhline(y=start, linestyle='--', color='mediumseagreen')
+    ax2.axhline(y=start, linestyle='--', color='mediumseagreen')
+    ax3.axhline(y=start, linestyle='--', color='mediumseagreen')
+
+    plt.savefig(filename1, bbox_inches='tight')
+    plt.tight_layout()
+    plt.show()
+    
+    ratios = [4,2,1,.5]
+    colors = ['seagreen','magenta','black','purple']
+            
+    corr_zg = [] 
+    corr_bg = [] 
+    
+    fig, (ax1, ax2, ax3) = plt.subplots(figsize=(22,4),nrows=1, ncols=3, sharey=True)
+    for ax in [ax1,ax2,ax3]:
+        ax.spines.left.set_linewidth(2)
+        ax.spines.bottom.set_linewidth(2)
+        ax.spines.right.set_color('none')
+        ax.spines.top.set_color('none')
+        ax.xaxis.set_tick_params(labelsize=20)
+        ax.yaxis.set_tick_params(labelsize=20)
+        
+
+
+    
+    # zeta/beta plot
+    for k in range(len(ratios)): # one line for each ratio
+        corr_zb = []
+        r = ratios[k]
+        col = colors[k]
+        
+        if r >= 1:
+            d = 1
+        else:
+            d = int(1/r)
+            
+        for i in range(len(zetas)//d): # zeta : beta             
+            if r >= 1: 
+                zeta_zb = zetas[i]
+                beta_zb = (1/r)*zeta_zb
+            else:
+                zeta_zb = zetas[i]
+                beta_zb = d*zeta_zb
+                
+            gamma_zb = 0
+
+            corr12_zb = compute_corr12(Wee, Wii, Wei, Wie, alpha, zeta_zb, beta_zb, gamma_zb, sigE, sigI, c)
+            corr_zb.append(corr12_zb)
+            
+            if i==0:
+                start = corr12_zb
+            ax1.axhline(y=start, linestyle='--', color='mediumseagreen')
+        
+        ax1.plot(zetas[:len(zetas)//d], corr_zb, linewidth=3.5, color=col)
+        
+    ax1.set_ylabel(r'Corr$(E_1,E_2)$', fontsize=20, labelpad=5)
+    ax1.set_xlabel(r'$\zeta$', fontsize=20, labelpad=5)
+    
+    
+    # zeta/gamma plot 
+    for k in range(len(ratios)): 
+        corr_zg = []
+        r = ratios[k]
+        col = colors[k]
+        
+        if r >= 1:
+            d = 1
+        else:
+            d = int(1/r)
+            
+        for i in range(len(zetas)//d): # zeta : beta             
+            if r >= 1: 
+                zeta_zg = zetas[i]
+                gamma_zg = (1/r)*zeta_zg
+            else:
+                zeta_zg = zetas[i]
+                gamma_zg = d*zeta_zg
+            beta_zg = 0
+
+            corr12_zg = compute_corr12(Wee, Wii, Wei, Wie, alpha, zeta_zg, beta_zg, gamma_zg, sigE, sigI, c)
+            corr_zg.append(corr12_zg)
+            
+            if i==0:
+                start = corr12_zg
+            ax2.axhline(y=start, linestyle='--', color='mediumseagreen')
+        
+        ax2.plot(zetas[:len(zetas)//d], corr_zg, linewidth=3.5, color=col)
+    ax2.set_xlabel(r'$\zeta$', fontsize=20, labelpad=5)
+    
+    # beta/gamma plot 
+    for k in range(len(ratios)): 
+        corr_bg = []
+        r = ratios[k]
+        col = colors[k]
+        
+        if r >= 1:
+            d = 1
+        else:
+            d = int(1/r)
+            
+        for i in range(len(betas)//d): # zeta : beta             
+            if r >= 1: 
+                beta_bg = betas[i]
+                gamma_bg = (1/r)*beta_bg
+            else:
+                beta_bg = betas[i]
+                gamma_bg = d*beta_bg
+            zeta_bg = 0
+
+            corr12_bg = compute_corr12(Wee, Wii, Wei, Wie, alpha, zeta_bg, beta_bg, gamma_bg, sigE, sigI, c)
+            corr_bg.append(corr12_bg)
+            
+            if i==0:
+                start = corr12_bg
+            ax3.axhline(y=start, linestyle='--', color='mediumseagreen')
+        
+        ax3.plot(betas[:len(betas)//d], corr_bg, linewidth=3.5, color=col)
+    ax3.set_xlabel(r'$\beta$', fontsize=20, labelpad=5)
+    
+    
+    plt.tight_layout()
+    plt.savefig(filename2, bbox_inches='tight')
+    plt.show()
