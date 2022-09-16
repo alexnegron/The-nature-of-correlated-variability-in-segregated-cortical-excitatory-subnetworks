@@ -61,10 +61,16 @@ def global_inh_model(t0, r0, r_bar, T, dt, t_kick, kick_bool, kick, tau_E, tau_I
     # Wee/Wii/Wei/Wie: synaptic weights
     # alpha: scales E1-E2 connection
     
+    M = int(T/dt)
+    
     # matrices to store firing rates as row and time as column
-    R_ss = np.zeros((3,1)) # steady-state deterministic solution 
-    R_n = np.zeros((3,1)) # stochastic solution
-    R_p = np.zeros((3,1)) # deterministic solution with perturbation 
+    # R_ss = np.zeros((3,1)) # steady-state deterministic solution
+    # R_n = np.zeros((3,1)) # stochastic solution
+    # R_p = np.zeros((3,1)) # deterministic solution with perturbation
+    
+    R_ss = np.zeros((3,M+1)) # steady-state deterministic solution
+    R_n = np.zeros((3,M+1)) # stochastic solution
+    R_p = np.zeros((3,M+1)) # deterministic solution with perturbation
     
     W = np.block([        # weight matrix for global inhibition motif
         [Wee, alpha*Wee, -Wei],
@@ -97,29 +103,30 @@ def global_inh_model(t0, r0, r_bar, T, dt, t_kick, kick_bool, kick, tau_E, tau_I
     D_shared = shared_structure*D_shared
     D = np.c_[D,D_shared]
 
-    
-    M = int(T/dt)
     ts = np.arange(M+1)
     for m in range(M):
     # deterministic sim
         r_ss = r_ss + (dt*(1/tau))*(-r_ss + Id)
         Id = mu + W@r_ss
-        R_ss = np.c_[R_ss, r_ss] # concatenate column 
+        # R_ss = np.c_[R_ss, r_ss] # concatenate column
+        R_ss[:,[m+1]] = r_ss
     # noise sim
         x = np.random.randn(4,1)
         r_n = r_n + -dt*(1/tau)*r_n + dt*(1/tau)*In + (1/tau)*np.sqrt(2*dt)*(D@x)
         In = mu + W@r_n
-        R_n = np.c_[R_n, r_n]
+        # R_n = np.c_[R_n, r_n]
+        R_n[:,[m+1]] = r_n
     # perturbed sim
         if kick_bool:
             if m==t_kick: 
                 r_p = r_p + (dt*(1/tau))*(-r_p + Ip) + np.array([[kick],[-kick],[0]])
                 Ip = mu + W@r_p
-                R_p = np.c_[R_p, r_p]
+                # R_p = np.c_[R_p, r_p]
             else:
                 r_p = r_p + (dt*(1/tau))*(-r_p + Ip)
                 Ip = mu + W@r_p
-                R_p = np.c_[R_p, r_p]
+                # R_p = np.c_[R_p, r_p]
+            R_p[:,[m+1]] = r_p
                 
     return r_ss, r_n, r_p, R_ss, R_n, R_p, W, mu, ts, sigE, sigI
 
